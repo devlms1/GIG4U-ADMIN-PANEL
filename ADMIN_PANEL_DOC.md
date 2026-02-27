@@ -405,7 +405,6 @@ erDiagram
 
     Role ||--o{ UserRole : "assigned via"
     Role ||--o{ RolePermission : "has"
-    Role ||--o| Role : "parent of"
     Role ||--o{ AdminSession : "selected in"
     Role ||--o{ AdminProfile : "active role"
 
@@ -417,8 +416,8 @@ erDiagram
         string phone UK
         string email UK
         string passwordHash
-        UserType userType
-        UserStatus status
+        string userType
+        string status
         boolean isPhoneVerified
         boolean isEmailVerified
         datetime lastLoginAt
@@ -428,35 +427,35 @@ erDiagram
     Tenant {
         uuid id PK
         string companyName
-        TenantSegment segment
+        string segment
         string planTier
         decimal walletBalance
-        TenantStatus status
+        string status
     }
 
     ClientProfile {
-        uuid userId PK_FK
+        uuid userId PK,FK
         uuid tenantId FK
         string fullName
         string designation
         string department
-        ClientRole clientRole
+        string clientRole
     }
 
     SpProfile {
-        uuid userId PK_FK
+        uuid userId PK,FK
         string fullName
         string city
         string state
         string pincode
-        SpStatus spStatus
+        string spStatus
         decimal behaviorScore
         decimal ratingAvg
         int totalCompleted
     }
 
     AdminProfile {
-        uuid userId PK_FK
+        uuid userId PK,FK
         string fullName
         string employeeId UK
         string department
@@ -465,10 +464,10 @@ erDiagram
 
     Role {
         uuid id PK
+        uuid parentId FK
         string name UK
         string displayName
-        UserType actorType
-        uuid parentId FK
+        string actorType
         boolean isSystem
         boolean isActive
         datetime deletedAt
@@ -489,8 +488,8 @@ erDiagram
     }
 
     RolePermission {
-        uuid roleId PK_FK
-        uuid permissionId PK_FK
+        uuid roleId PK,FK
+        uuid permissionId PK,FK
         uuid grantedById FK
     }
 
@@ -514,15 +513,15 @@ erDiagram
 
     OtpRecord {
         uuid id PK
-        string phone FK
+        uuid userId FK
         string otpHash
-        OtpPurpose purpose
+        string purpose
         datetime expiresAt
     }
 
     AdminSession {
         uuid id PK
-        uuid userId
+        uuid userId FK
         uuid selectedRoleId FK
         string jwtJti UK
         datetime expiresAt
