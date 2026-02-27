@@ -1,0 +1,350 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ──────────────────────────────────────────────────────────────────
+
+enum UserType {
+  CLIENT
+  SP
+  ADMIN
+  PARTNER
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  BANNED
+  SUSPENDED
+}
+
+enum TenantSegment {
+  SMB
+  MSME
+  ENTERPRISE
+}
+
+enum TenantStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+enum ClientRole {
+  ADMIN
+  MANAGER
+  FINANCE
+  VIEWER
+}
+
+enum SpStatus {
+  PROFILE_INCOMPLETE
+  KYC_PENDING
+  KYC_SUBMITTED
+  KYC_APPROVED
+  ACTIVE
+  SUSPENDED
+  BANNED
+}
+
+enum OtpPurpose {
+  SIGNUP
+  LOGIN
+  SHIFT_START
+  PASSWORD_RESET
+}
+
+// ─── Model 1: User ─────────────────────────────────────────────────────────
+
+model User {
+  id              String     @id @default(uuid())
+  phone           String     @unique
+  email           String?    @unique
+  passwordHash    String?
+  userType        UserType
+  status          UserStatus @default(ACTIVE)
+  isPhoneVerified Boolean    @default(false)
+  isEmailVerified Boolean    @default(false)
+  lastLoginAt     DateTime?
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+  deletedAt       DateTime?
+
+  clientProfile      ClientProfile?
+  spProfile          SpProfile?
+  adminProfile       AdminProfile?
+  userRoles          UserRole[]
+  refreshTokens      RefreshToken[]
+  otpRecords         OtpRecord[]
+  auditLogs          AuditLog[]         @relation("ActorLogs")
+  assignedRoles      UserRole[]         @relation("RoleAssigner")
+  createdRoles       Role[]             @relation("RoleCreator")
+  grantedPermissions RolePermission[]   @relation("PermissionGranter")
+
+  @@index([phone])
+  @@index([userType, status])
+  @@index([deletedAt])
+  @@map("users")
+}
+
+// ─── Model 2: Tenant ────────────────────────────────────────────────────────
+
+model Tenant {
+  id            String        @id @default(uuid())
+  companyName   String
+  segment       TenantSegment @default(SMB)
+  planTier      String        @default("Basic")
+  walletBalance Decimal       @default(0) @db.Decimal(14, 2)
+  status        TenantStatus  @default(ACTIVE)
+  settings      Json?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  clientProfiles ClientProfile[]
+  userRoles      UserRole[]
+
+  @@map("tenants")
+}
+
+// ─── Model 3: ClientProfile ─────────────────────────────────────────────────
+
+model ClientProfile {
+  userId      String     @id
+  tenantId    String
+  fullName    String?
+  designation String?
+  department  String?
+  clientRole  ClientRole @default(ADMIN)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@map("client_profiles")
+}
+
+// ─── Model 4: SpProfile ─────────────────────────────────────────────────────
+
+model SpProfile {
+  userId          String    @id
+  fullName        String?
+  city            String?
+  state           String?
+  pincode         String?
+  gender          String?
+  dateOfBirth     DateTime?
+  profilePhotoUrl String?
+  spStatus        SpStatus  @default(PROFILE_INCOMPLETE)
+  behaviorScore   Decimal   @default(0) @db.Decimal(5, 2)
+  ratingAvg       Decimal   @default(0) @db.Decimal(3, 2)
+  totalCompleted  Int       @default(0)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([city, spStatus])
+  @@map("sp_profiles")
+}
+
+// ─── Model 5: AdminProfile ──────────────────────────────────────────────────
+
+model AdminProfile {
+  userId       String   @id
+  fullName     String?
+  employeeId   String?  @unique
+  department   String?
+  activeRoleId String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user       User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  activeRole Role? @relation(fields: [activeRoleId], references: [id])
+
+  @@map("admin_profiles")
+}
+
+// ─── Model 6: Role ──────────────────────────────────────────────────────────
+
+model Role {
+  id          String    @id @default(uuid())
+  name        String    @unique
+  displayName String?
+  description String?
+  actorType   UserType
+  parentId    String?
+  isSystem    Boolean   @default(false)
+  isActive    Boolean   @default(true)
+  createdById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  parent          Role?            @relation("RoleHierarchy", fields: [parentId], references: [id])
+  children        Role[]           @relation("RoleHierarchy")
+  createdBy       User?            @relation("RoleCreator", fields: [createdById], references: [id])
+  rolePermissions RolePermission[]
+  userRoles       UserRole[]
+  adminProfiles   AdminProfile[]
+  adminSessions   AdminSession[]
+
+  @@index([actorType])
+  @@index([parentId])
+  @@map("roles")
+}
+
+// ─── Model 7: PermissionGroup ───────────────────────────────────────────────
+
+model PermissionGroup {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  displayName String?
+  description String?
+  createdAt   DateTime @default(now())
+
+  permissions Permission[]
+
+  @@map("permission_groups")
+}
+
+// ─── Model 8: Permission ────────────────────────────────────────────────────
+
+model Permission {
+  id          String   @id @default(uuid())
+  groupId     String?
+  name        String   @unique
+  displayName String?
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  group           PermissionGroup? @relation(fields: [groupId], references: [id])
+  rolePermissions RolePermission[]
+
+  @@index([groupId])
+  @@map("permissions")
+}
+
+// ─── Model 9: RolePermission ────────────────────────────────────────────────
+
+model RolePermission {
+  roleId       String
+  permissionId String
+  grantedById  String?
+  grantedAt    DateTime @default(now())
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  grantedBy  User?      @relation("PermissionGranter", fields: [grantedById], references: [id])
+
+  @@id([roleId, permissionId])
+  @@index([roleId])
+  @@index([permissionId])
+  @@map("role_permissions")
+}
+
+// ─── Model 10: UserRole ─────────────────────────────────────────────────────
+
+model UserRole {
+  id           String    @id @default(uuid())
+  userId       String
+  roleId       String
+  tenantId     String?
+  assignedById String?
+  assignedAt   DateTime  @default(now())
+  expiresAt    DateTime?
+  isActive     Boolean   @default(true)
+
+  user       User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role       Role    @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  tenant     Tenant? @relation(fields: [tenantId], references: [id])
+  assignedBy User?   @relation("RoleAssigner", fields: [assignedById], references: [id])
+
+  @@unique([userId, roleId, tenantId])
+  @@index([userId])
+  @@index([roleId])
+  @@index([tenantId])
+  @@map("user_roles")
+}
+
+// ─── Model 11: RefreshToken ─────────────────────────────────────────────────
+
+model RefreshToken {
+  id        String    @id @default(uuid())
+  userId    String
+  tokenHash String    @unique
+  deviceInfo Json?
+  ipAddress String?
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+// ─── Model 12: OtpRecord ───────────────────────────────────────────────────
+
+model OtpRecord {
+  id           String     @id @default(uuid())
+  phone        String
+  otpHash      String
+  purpose      OtpPurpose
+  expiresAt    DateTime
+  usedAt       DateTime?
+  attemptCount Int        @default(0)
+  createdAt    DateTime   @default(now())
+
+  user User? @relation(fields: [phone], references: [phone])
+
+  @@index([phone, purpose])
+  @@map("otp_records")
+}
+
+// ─── Model 13: AdminSession ────────────────────────────────────────────────
+
+model AdminSession {
+  id             String    @id @default(uuid())
+  userId         String
+  selectedRoleId String
+  jwtJti         String    @unique
+  ipAddress      String?
+  userAgent      String?
+  createdAt      DateTime  @default(now())
+  expiresAt      DateTime
+  terminatedAt   DateTime?
+
+  role Role @relation(fields: [selectedRoleId], references: [id])
+
+  @@index([userId])
+  @@map("admin_sessions")
+}
+
+// ─── Model 14: AuditLog ────────────────────────────────────────────────────
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  actorUserId String?
+  actorRole   String?
+  action      String
+  targetType  String?
+  targetId    String?
+  metadata    Json?
+  ipAddress   String?
+  createdAt   DateTime @default(now())
+
+  actorUser User? @relation("ActorLogs", fields: [actorUserId], references: [id])
+
+  @@index([actorUserId])
+  @@index([targetType, targetId])
+  @@index([createdAt(sort: Desc)])
+  @@map("audit_logs")
+}
